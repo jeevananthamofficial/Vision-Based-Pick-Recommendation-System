@@ -1,0 +1,11 @@
+streamlit
+pandas
+numpy
+pillow
+opencv-python
+torch
+ultralytics
+huggingface_hub
+sentence-transformers
+transformers
+google-genai
