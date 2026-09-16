@@ -2,7 +2,7 @@
 
 ## 🚀 Project Overview
 
-The **Warehouse Vision-Based Pick Recommendation System** is an
+The **Vision-Based Pick Recommendation System** is an
 AI-powered application designed to identify products from warehouse
 images and generate complementary product recommendations.
 
@@ -715,7 +715,7 @@ Potential improvements include:
 
 # 👨‍💻 Project Summary
 
-**Warehouse Vision-Based Pick Recommendation System**
+**Vision-Based Pick Recommendation System**
 
 ``` text
 Computer Vision
