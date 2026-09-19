@@ -1,1019 +1,928 @@
+# -*- coding: utf-8 -*-
+"""
+Vision-Based Pick Recommendation System - Streamlit SaaS Frontend UI
+Run with: streamlit run "Remmendation system_ui.py"
+"""
 
-import streamlit as st
-from PIL import Image
+import os
+import time
+import datetime
 import pandas as pd
-import json
-import io
-from datetime import datetime
+import numpy as np
+from PIL import Image
+import streamlit as st
 
-# ============================================================
-# WAREHOUSE VISION-BASED PICK RECOMMENDATION SYSTEM
-# COMPLETE STREAMLIT USER INTERFACE
-# ============================================================
+# Import backend pipeline
+import pipeline
 
+# Set page configuration
 st.set_page_config(
-    page_title="Warehouse AI | Pick Recommendation",
+    page_title="Warehouse AI - Pick Recommendation System",
     page_icon="📦",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="expanded"
 )
 
-# ============================================================
-# CUSTOM CSS
-# ============================================================
-
-st.markdown(
-    """
-    <style>
-        .stApp {
-            background: #f6f7fb;
-        }
-
-        [data-testid="stSidebar"] {
-            border-right: 1px solid #e5e7eb;
-        }
-
-        .block-container {
-            padding-top: 1.2rem;
-            padding-bottom: 2.5rem;
-            max-width: 1500px;
-        }
-
-        .hero {
-            padding: 2rem 2.2rem;
-            border-radius: 20px;
-            background: linear-gradient(135deg, #111827, #374151);
-            color: white;
-            margin-bottom: 1.4rem;
-        }
-
-        .hero h1 {
-            margin: 0;
-            font-size: 2.25rem;
-        }
-
-        .hero p {
-            margin: .55rem 0 0;
-            color: #d1d5db;
-            font-size: 1rem;
-        }
-
-        .card {
-            background: white;
-            border: 1px solid #e5e7eb;
-            border-radius: 16px;
-            padding: 1.2rem;
-            margin-bottom: .9rem;
-        }
-
-        .small-card {
-            background: white;
-            border: 1px solid #e5e7eb;
-            border-radius: 14px;
-            padding: 1rem;
-            min-height: 120px;
-        }
-
-        .number {
-            font-size: 2rem;
-            font-weight: 800;
-            margin: 0;
-        }
-
-        .muted {
-            color: #6b7280;
-            font-size: .9rem;
-        }
-
-        .recommendation {
-            background: white;
-            border: 1px solid #e5e7eb;
-            border-radius: 16px;
-            padding: 1rem 1.2rem;
-            margin-bottom: .75rem;
-        }
-
-        .recommendation-number {
-            font-size: 1.35rem;
-            font-weight: 800;
-        }
-
-        .pipeline-step {
-            background: white;
-            border: 1px solid #e5e7eb;
-            border-radius: 14px;
-            padding: 1rem .5rem;
-            text-align: center;
-            min-height: 105px;
-        }
-
-        .pipeline-icon {
-            font-size: 1.8rem;
-        }
-
-        .success-box {
-            padding: .9rem 1rem;
-            border-radius: 12px;
-            background: #ecfdf5;
-            border: 1px solid #a7f3d0;
-            color: #065f46;
-        }
-
-        .warning-box {
-            padding: .9rem 1rem;
-            border-radius: 12px;
-            background: #fffbeb;
-            border: 1px solid #fde68a;
-            color: #92400e;
-        }
-
-        .section-title {
-            font-size: 1.4rem;
-            font-weight: 750;
-            margin-top: 1rem;
-            margin-bottom: .8rem;
-        }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
-# ============================================================
-# SESSION STATE
-# ============================================================
-
-if "result" not in st.session_state:
-    st.session_state["result"] = None
-
-if "uploaded_image" not in st.session_state:
-    st.session_state["uploaded_image"] = None
-
-if "uploaded_filename" not in st.session_state:
-    st.session_state["uploaded_filename"] = None
-
-if "history" not in st.session_state:
-    st.session_state["history"] = []
-
-# ============================================================
-# BACKEND
-# ============================================================
-
-@st.cache_resource
-def load_backend():
-    try:
-        from pipeline import final_warehouse_pipeline
-        return final_warehouse_pipeline, None
-    except Exception as exc:
-        return None, str(exc)
-
-
-final_warehouse_pipeline, backend_error = load_backend()
-
-# ============================================================
-# HELPERS
-# ============================================================
-
-def reset_analysis():
-    st.session_state["result"] = None
-    st.session_state["uploaded_image"] = None
-    st.session_state["uploaded_filename"] = None
-
-
-def dataframe_from(value):
-    if isinstance(value, list) and value:
-        return pd.DataFrame(value)
-    return pd.DataFrame()
-
-
-def result_json(result):
-    return json.dumps(result, indent=2, default=str)
-
-
-def safe_score(value):
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return 0.0
-
-
-def save_history(result, filename):
-    if not result or result.get("status") != "success":
-        return
-
-    detected = result.get("product_detection", {})
-    entry = {
-        "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "file": filename or "-",
-        "Product_ID": detected.get("Product_ID", "-"),
-        "Product_Name": detected.get("Product_Name", "-"),
-        "Category": detected.get("Category", "-"),
-        "Vision_Score": safe_score(detected.get("Vision_Score", 0)),
-        "recommendations": len(result.get("recommendations", [])),
+# Injected SaaS Enterprise Custom CSS
+CUSTOM_CSS = """
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+    
+    html, body, [class*="css"] {
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+    
+    .stApp {
+        background-color: #0b0f19;
+        color: #f1f5f9;
+    }
+    
+    section[data-testid="stSidebar"] {
+        background-color: #111827;
+        border-right: 1px solid #1f2937;
+    }
+    
+    .saas-card {
+        background: #1e293b;
+        border: 1px solid #334155;
+        border-radius: 12px;
+        padding: 20px;
+        margin-bottom: 20px;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+        transition: transform 0.2s ease, border-color 0.2s ease;
+    }
+    .saas-card:hover {
+        border-color: #38bdf8;
     }
 
-    st.session_state["history"].insert(0, entry)
-    st.session_state["history"] = st.session_state["history"][:20]
+    .saas-card-accent {
+        background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+        border: 1px solid #3b82f6;
+        border-radius: 12px;
+        padding: 24px;
+        margin-bottom: 20px;
+        box-shadow: 0 8px 30px rgba(59, 130, 246, 0.15);
+    }
+    
+    .saas-card-warning {
+        background: linear-gradient(135deg, #1e293b 0%, #17120a 100%);
+        border: 1px solid #f59e0b;
+        border-radius: 12px;
+        padding: 24px;
+        margin-bottom: 20px;
+        box-shadow: 0 8px 30px rgba(245, 158, 11, 0.15);
+    }
+    
+    .status-pill-online {
+        display: inline-flex;
+        align-items: center;
+        background-color: rgba(16, 185, 129, 0.15);
+        color: #10b981;
+        border: 1px solid rgba(16, 185, 129, 0.3);
+        padding: 4px 12px;
+        border-radius: 9999px;
+        font-size: 0.85rem;
+        font-weight: 600;
+        letter-spacing: 0.5px;
+    }
+    .status-pill-warning {
+        display: inline-flex;
+        align-items: center;
+        background-color: rgba(245, 158, 11, 0.15);
+        color: #f59e0b;
+        border: 1px solid rgba(245, 158, 11, 0.3);
+        padding: 4px 12px;
+        border-radius: 9999px;
+        font-size: 0.85rem;
+        font-weight: 600;
+        letter-spacing: 0.5px;
+    }
+    .status-dot {
+        height: 8px;
+        width: 8px;
+        background-color: currentColor;
+        border-radius: 50%;
+        display: inline-block;
+        margin-right: 8px;
+    }
+    
+    .kpi-title {
+        color: #94a3b8;
+        font-size: 0.75rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        margin-bottom: 4px;
+    }
+    .kpi-value {
+        color: #f8fafc;
+        font-size: 1.25rem;
+        font-weight: 700;
+        margin-bottom: 6px;
+    }
+    .kpi-desc {
+        color: #64748b;
+        font-size: 0.8rem;
+    }
+    
+    .rec-card {
+        background: #0f172a;
+        border: 1px solid #1e293b;
+        border-left: 4px solid #38bdf8;
+        border-radius: 8px;
+        padding: 16px;
+        margin-bottom: 12px;
+    }
+    .rec-badge {
+        background-color: #0284c7;
+        color: #ffffff;
+        font-size: 0.7rem;
+        font-weight: 700;
+        padding: 2px 8px;
+        border-radius: 4px;
+        text-transform: uppercase;
+        display: inline-block;
+        margin-bottom: 8px;
+    }
+    
+    .stDataFrame {
+        border-radius: 8px;
+        overflow: hidden;
+    }
+    
+    .page-title {
+        color: #f8fafc;
+        font-size: 2rem;
+        font-weight: 800;
+        letter-spacing: -0.5px;
+        margin-bottom: 4px;
+    }
+    .page-subtitle {
+        color: #94a3b8;
+        font-size: 1rem;
+        font-weight: 400;
+        margin-bottom: 24px;
+    }
+</style>
+"""
+
+st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
+
+# Initialize Session State
+if "history" not in st.session_state:
+    st.session_state.history = []
+
+if "current_result" not in st.session_state:
+    st.session_state.current_result = None
+
+if "uploaded_image" not in st.session_state:
+    st.session_state.uploaded_image = None
+
+if "uploaded_file_name" not in st.session_state:
+    st.session_state.uploaded_file_name = None
+
+if "active_page" not in st.session_state:
+    st.session_state.active_page = "🏠 Dashboard"
 
 
-# ============================================================
-# SIDEBAR
-# ============================================================
+# Cache heavy backend loading
+@st.cache_resource(show_spinner="Initializing AI Models & Datasets...")
+def load_cached_backend():
+    is_ok = pipeline.initialize_backend()
+    return is_ok
 
-with st.sidebar:
-    st.markdown("## 📦 Warehouse AI")
-    st.caption("Vision-Based Pick Recommendation")
 
-    st.markdown("---")
+# Sidebar Navigation
+def render_sidebar():
+    st.sidebar.markdown("""
+        <div style="padding: 10px 0 20px 0;">
+            <h2 style="color: #38bdf8; margin: 0; font-size: 1.5rem; font-weight: 800; letter-spacing: 1px;">WAREHOUSE AI</h2>
+            <p style="color: #64748b; margin: 0; font-size: 0.75rem; font-weight: 700; text-transform: uppercase;">AI PICK RECOMMENDATION</p>
+        </div>
+    """, unsafe_allow_html=True)
 
-    page = st.radio(
-        "Navigation",
-        [
-            "🏠 Dashboard",
-            "🔍 Product Detection",
-            "🎯 Detection Results",
-            "🛒 Recommendations",
-            "📚 RAG Explorer",
-            "🕘 Run History",
-            "📊 Pipeline Details",
-        ],
-    )
+    is_ok, status_info = pipeline.check_backend_status()
 
-    st.markdown("---")
+    if is_ok:
+        st.sidebar.markdown("""
+            <div class="status-pill-online" style="margin-bottom: 20px;">
+                <span class="status-dot"></span> AI SYSTEM ONLINE
+            </div>
+        """, unsafe_allow_html=True)
+    else:
+        st.sidebar.markdown("""
+            <div class="status-pill-warning" style="margin-bottom: 20px;">
+                <span class="status-dot"></span> BACKEND WARNING
+            </div>
+        """, unsafe_allow_html=True)
 
-    st.markdown("### AI Pipeline")
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### Navigation")
 
-    pipeline_items = [
-        ("📷", "Image Upload"),
-        ("⚙️", "OpenCV"),
-        ("🎯", "YOLO"),
-        ("🤖", "CLIP"),
-        ("📚", "Text RAG"),
-        ("✨", "Gemini"),
-        ("✓", "Validation"),
+    nav_options = [
+        "🏠 Dashboard",
+        "🔍 Product Detection",
+        "🛒 Recommendations",
+        "🧠 AI Pipeline",
+        "📊 Analytics",
+        "🕘 History",
+        "ℹ️ About"
     ]
 
-    for icon, name in pipeline_items:
-        st.write(f"{icon} {name}")
+    selected_nav = st.sidebar.radio(
+        "Go to page",
+        nav_options,
+        index=nav_options.index(st.session_state.active_page),
+        label_visibility="collapsed"
+    )
+    st.session_state.active_page = selected_nav
 
-    st.markdown("---")
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### System Specs")
+    st.sidebar.caption("🤖 YOLOv26 Object Detection")
+    st.sidebar.caption("👁️ CLIP ViT-B/32 Zero-Shot Vision")
+    st.sidebar.caption("🧠 Gemini Multimodal Understanding")
+    st.sidebar.caption("📚 MiniLM RAG Vector Retrieval")
+    st.sidebar.caption("⚡ Gemini 3.6 Flash Recommendation Engine")
 
-    if final_warehouse_pipeline is not None:
-        st.success("Backend connected")
-    else:
-        st.error("Backend unavailable")
+    if not status_info["has_api_key"]:
+        st.sidebar.warning("⚠️ GEMINI_API_KEY environment variable is missing.")
 
-    if st.button("🗑️ Clear Current Analysis", use_container_width=True):
-        reset_analysis()
-        st.rerun()
 
-# ============================================================
-# HERO
-# ============================================================
-
-st.markdown(
-    """
-    <div class="hero">
-        <h1>📦 Warehouse Vision-Based Pick Recommendation</h1>
-        <p>
-            Detect a warehouse product from an image, identify it with vision,
-            retrieve relevant catalog candidates and generate validated
-            complementary product recommendations.
-        </p>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
-
-# ============================================================
-# DASHBOARD
-# ============================================================
-
-if page == "🏠 Dashboard":
-
-    st.markdown("## System Overview")
-
-    result = st.session_state["result"]
-
+# KPI Cards Section
+def render_kpi_cards():
     col1, col2, col3, col4 = st.columns(4)
 
     with col1:
-        st.metric("Vision Model", "CLIP")
+        st.markdown("""
+            <div class="saas-card">
+                <div style="font-size: 1.5rem; margin-bottom: 8px;">🎯</div>
+                <div class="kpi-title">Product Detection</div>
+                <div class="kpi-value">YOLO</div>
+                <div class="kpi-desc">Multi-Object Bounding & Crop</div>
+                <div style="margin-top: 10px;">
+                    <span class="status-pill-online"><span class="status-dot"></span> Ready</span>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
 
     with col2:
-        st.metric("Object Detection", "YOLO")
+        st.markdown("""
+            <div class="saas-card">
+                <div style="font-size: 1.5rem; margin-bottom: 8px;">👁️</div>
+                <div class="kpi-title">Vision Identification</div>
+                <div class="kpi-value">CLIP</div>
+                <div class="kpi-desc">Zero-Shot Identification</div>
+                <div style="margin-top: 10px;">
+                    <span class="status-pill-online"><span class="status-dot"></span> Ready</span>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
 
     with col3:
-        st.metric("Retrieval", "Text RAG")
+        st.markdown("""
+            <div class="saas-card">
+                <div style="font-size: 1.5rem; margin-bottom: 8px;">📚</div>
+                <div class="kpi-title">Semantic Retrieval</div>
+                <div class="kpi-value">RAG</div>
+                <div class="kpi-desc">Catalog Similarity Search</div>
+                <div style="margin-top: 10px;">
+                    <span class="status-pill-online"><span class="status-dot"></span> Ready</span>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
 
     with col4:
-        st.metric("Recommendation", "Gemini")
+        st.markdown("""
+            <div class="saas-card">
+                <div style="font-size: 1.5rem; margin-bottom: 8px;">⚡</div>
+                <div class="kpi-title">Recommendation Engine</div>
+                <div class="kpi-value">GEMINI</div>
+                <div class="kpi-desc">Generative Complementary Pick</div>
+                <div style="margin-top: 10px;">
+                    <span class="status-pill-online"><span class="status-dot"></span> Ready</span>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
 
-    st.markdown("---")
 
-    st.markdown("## End-to-End Workflow")
+# Render Pipeline Execution Progress (9-stage flow)
+def execute_pipeline(pil_image):
+    progress_bar = st.progress(0)
+    status_text = st.empty()
 
-    steps = [
-        ("📷", "Upload", "Product image"),
-        ("⚙️", "Preprocess", "OpenCV"),
-        ("🎯", "Detect", "YOLO"),
-        ("🤖", "Identify", "CLIP"),
-        ("📚", "Retrieve", "Text RAG"),
-        ("✨", "Recommend", "Gemini"),
-        ("✓", "Validate", "Candidate check"),
+    stages = [
+        ("01", "Image Preprocessing", "Running OpenCV noise reduction & scale optimization..."),
+        ("02", "YOLO Detection", "Bounding product locations with YOLO detection model..."),
+        ("03", "Product Crops & Filtering", "Extracting & validating high-resolution product crops..."),
+        ("04", "OCR Text Extraction", "Extracting visible packaging text from product crops..."),
+        ("05", "CLIP Identification", "Matching image features against product catalog names..."),
+        ("06", "Gemini Product Understanding", "Interpreting crop image with multimodal AI..."),
+        ("07", "Catalog Match & Acceptance Gate", "Validating multi-signal match confidence against 35% threshold..."),
+        ("08", "Text RAG Retrieval", "Searching catalog vector database for candidates..."),
+        ("09", "Gemini Recommendation & Validation", "Generating complementary pick recommendations...")
     ]
 
-    cols = st.columns(len(steps))
+    for idx, (code, stage_name, desc) in enumerate(stages):
+        status_text.markdown(f"**Stage {code}: {stage_name}** — *{desc}*")
+        progress_bar.progress((idx + 1) / len(stages))
+        time.sleep(0.10)
 
-    for col, (icon, title, subtitle) in zip(cols, steps):
-        with col:
-            st.markdown(
-                f"""
-                <div class="pipeline-step">
-                    <div class="pipeline-icon">{icon}</div>
-                    <b>{title}</b><br>
-                    <span class="muted">{subtitle}</span>
+    cached_ok = load_cached_backend()
+    if not cached_ok:
+        st.error("❌ Private product catalog is not configured or backend initialization failed.")
+
+    result = pipeline.final_warehouse_pipeline(pil_image)
+    progress_bar.progress(1.0)
+    status_text.empty()
+    return result
+
+
+# Render Product Identification Result Card
+def render_product_card(result):
+    ident = result.get("identification", {})
+    prod_ident = result.get("product_identification", {})
+    und = result.get("product_understanding", {})
+    yolo_data = result.get("yolo", {})
+    yolo_best = yolo_data.get("best_detection", {})
+    
+    is_accepted = ident.get("accepted", False)
+    reason = ident.get("reason", "")
+    match_conf = float(ident.get("combined_score", prod_ident.get("confidence", 0.0)))
+    
+    yolo_conf = float(yolo_best.get("confidence", 0.0)) if yolo_best else 0.0
+    det_obj = result.get("product_detection", {})
+    clip_score = float(det_obj.get("Vision_Score", 0.0))
+
+    if is_accepted:
+        # IDENTIFIED PRODUCT STATE
+        prod_name = prod_ident.get("product_name", "Identified Product")
+        prod_id = prod_ident.get("product_id", "N/A")
+        cat_name = prod_ident.get("category", "Unknown")
+        card_class = "saas-card-accent"
+        status_str = "✓ Product Identified"
+        status_color = "#10b981"
+        
+        st.markdown(f"""
+            <div class="{card_class}">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div class="rec-badge">PRODUCT IDENTIFICATION</div>
+                    <div style="font-size: 0.85rem; font-weight: 700; color: {status_color};">
+                        {status_str}
+                    </div>
                 </div>
-                """,
-                unsafe_allow_html=True,
-            )
+                <h2 style="color: #f8fafc; margin-top: 8px; font-size: 1.6rem;">{prod_name}</h2>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 16px;">
+                    <div>
+                        <div class="kpi-title">Product ID</div>
+                        <div style="font-weight: 700; color: #38bdf8; font-size: 1.1rem;">{prod_id}</div>
+                    </div>
+                    <div>
+                        <div class="kpi-title">Category</div>
+                        <div style="font-weight: 700; color: #f1f5f9; font-size: 1.1rem;">{cat_name}</div>
+                    </div>
+                    <div>
+                        <div class="kpi-title">YOLO Detection Confidence</div>
+                        <div style="font-weight: 700; color: #10b981; font-size: 1.1rem;">
+                            {yolo_conf * 100:.1f}%
+                        </div>
+                    </div>
+                    <div>
+                        <div class="kpi-title">CLIP Vision Score</div>
+                        <div style="font-weight: 700; color: #34d399; font-size: 1.1rem;">
+                            {clip_score * 100:.1f}%
+                        </div>
+                    </div>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+
+        # AI Product Understanding Section for Identified Items
+        st.markdown("### 🧠 AI Product Understanding")
+        desc_text = und.get("description", "No description available.")
+        is_gemini_used = und.get("gemini_used", False)
+        
+        st.markdown(f"""
+            <div class="saas-card">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                    <div class="kpi-title">Match Confidence ({match_conf * 100:.1f}%)</div>
+                    <span class="status-pill-online" style="font-size: 0.75rem;">{'✓ Gemini AI' if is_gemini_used else '⚡ Rule Engine'}</span>
+                </div>
+                <div style="font-size: 1.2rem; font-weight: 700; color: #38bdf8; margin-bottom: 12px;">{cat_name}</div>
+                <div class="kpi-title">Product Description</div>
+                <p style="color: #cbd5e1; font-size: 0.95rem; margin-top: 4px; line-height: 1.5;">{desc_text}</p>
+            </div>
+        """, unsafe_allow_html=True)
+
+    else:
+        # UNKNOWN PRODUCT STATE (REJECTED LOW EVIDENCE MATCH)
+        st.markdown(f"""
+            <div class="saas-card-warning">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div class="rec-badge" style="background-color: #d97706;">UNIDENTIFIED ITEM</div>
+                    <div style="font-size: 0.85rem; font-weight: 700; color: #f59e0b;">
+                        ⚠ Product could not be reliably identified
+                    </div>
+                </div>
+                <h2 style="color: #f8fafc; margin-top: 8px; font-size: 1.6rem;">Unknown Product</h2>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 16px;">
+                    <div>
+                        <div class="kpi-title">Product ID</div>
+                        <div style="font-weight: 700; color: #94a3b8; font-size: 1.1rem;">N/A</div>
+                    </div>
+                    <div>
+                        <div class="kpi-title">Category</div>
+                        <div style="font-weight: 700; color: #94a3b8; font-size: 1.1rem;">Unknown</div>
+                    </div>
+                    <div>
+                        <div class="kpi-title">YOLO Detection Confidence</div>
+                        <div style="font-weight: 700; color: #10b981; font-size: 1.1rem;">
+                            {yolo_conf * 100:.1f}%
+                        </div>
+                    </div>
+                    <div>
+                        <div class="kpi-title">CLIP Vision Score</div>
+                        <div style="font-weight: 700; color: #ef4444; font-size: 1.1rem;">
+                            {clip_score * 100:.1f}%
+                        </div>
+                    </div>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+
+        st.warning(f"⚠ **Low Vision Match ({clip_score * 100:.1f}%)**: The visual/text match is too weak to confidently identify a catalog product.")
+        st.info(f"💡 **Rejection Reason**: {reason}\n\n*Please upload a clearer or closer product image to establish a reliable catalog match.*")
+
+
+# Render Analysis Summary
+def render_analysis_summary(result):
+    if result.get("status") == "failed":
+        st.markdown(f"""
+            <div class="saas-card" style="border-left: 4px solid #ef4444;">
+                <h3 style="color: #ef4444; margin-top: 0;">✕ Pipeline Analysis Failed</h3>
+                <p><strong>Failed Stage:</strong> {result.get('stage', 'Unknown')}</p>
+                <p><strong>Error Message:</strong> {result.get('message', 'No message')}</p>
+            </div>
+        """, unsafe_allow_html=True)
+
+        with st.expander("Technical Details"):
+            st.json(result)
+        return
+
+    ident = result.get("identification", {})
+    is_accepted = ident.get("accepted", False)
+    yolo_data = result.get("yolo", {})
+    detections = yolo_data.get("detections", [])
+
+    st.markdown("""
+        <div class="status-pill-online" style="margin-bottom: 16px; font-size: 1rem; padding: 6px 16px;">
+            <span class="status-dot"></span> AI ANALYSIS COMPLETE ✓
+        </div>
+    """, unsafe_allow_html=True)
+
+    c1, c2 = st.columns([1, 1])
+
+    with c1:
+        st.markdown("### Detected Product Image")
+        if st.session_state.uploaded_image:
+            annotated = pipeline.draw_yolo_detections(st.session_state.uploaded_image, detections)
+            st.image(annotated, caption="YOLO Bounding Box Annotations", use_container_width=True)
+
+    with c2:
+        render_product_card(result)
 
     st.markdown("---")
 
-    st.markdown("## Current Analysis")
+    col_rec, col_val = st.columns([2, 1])
 
-    if result and result.get("status") == "success":
-        detected = result.get("product_detection", {})
-        recommendations = result.get("recommendations", [])
-        rag = result.get("rag_candidates", [])
-        detections = result.get("yolo", {}).get("detections", [])
+    with col_rec:
+        st.markdown("### 🛒 AI Recommended Complementary Pick Products")
+        if is_accepted:
+            recs = result.get("recommendations", [])
+            if recs:
+                for idx, item in enumerate(recs, 1):
+                    st.markdown(f"""
+                        <div class="rec-card">
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <div class="rec-badge">RECOMMENDATION #{idx:02d}</div>
+                                <span style="color: #64748b; font-size: 0.8rem; font-weight: 600;">ID: {item['Product_ID']}</span>
+                            </div>
+                            <h4 style="color: #f8fafc; margin: 4px 0 0 0;">{item['Product_Name']}</h4>
+                            <p style="color: #94a3b8; font-size: 0.85rem; margin-top: 4px;">Complementary item retrieved from warehouse catalog candidates.</p>
+                        </div>
+                    """, unsafe_allow_html=True)
+            else:
+                st.info("No valid recommendations returned by the model.")
+        else:
+            st.warning("🔒 **Recommendations Guardrail Active**: Product identification is uncertain. Recommendations are unavailable until a product can be reliably identified.")
 
-        c1, c2, c3, c4 = st.columns(4)
+    with col_val:
+        st.markdown("### ✅ System Validation")
+        st.markdown(f"""
+            <div class="saas-card">
+                <p style="color: #10b981; font-weight: 600; margin-bottom: 8px;">✓ OpenCV Preprocessing Applied</p>
+                <p style="color: #10b981; font-weight: 600; margin-bottom: 8px;">✓ YOLO Multi-Object Detection Verified</p>
+                <p style="color: #10b981; font-weight: 600; margin-bottom: 8px;">✓ Crop Quality & Aspect Filtering Applied</p>
+                <p style="color: #10b981; font-weight: 600; margin-bottom: 8px;">✓ CLIP Catalog Feature Matching Run</p>
+                <p style="color: #10b981; font-weight: 600; margin-bottom: 8px;">✓ Gemini Multimodal Crop Understanding</p>
+                <p style="color: {'#10b981' if is_accepted else '#f59e0b'}; font-weight: 600; margin-bottom: 0;">
+                    {'✓ Identification Threshold Passed (>= 35%)' if is_accepted else '⚠ Identification Threshold Rejected (< 35%)'}
+                </p>
+            </div>
+        """, unsafe_allow_html=True)
 
-        with c1:
-            st.markdown(
-                f'<div class="small-card"><p class="number">{len(detections)}</p>'
-                '<span class="muted">YOLO detections</span></div>',
-                unsafe_allow_html=True,
-            )
+    b1, b2 = st.columns([1, 1])
+    with b1:
+        if st.button("🔄 Analyze Another Image", use_container_width=True):
+            st.session_state.current_result = None
+            st.session_state.uploaded_image = None
+            st.session_state.uploaded_file_name = None
+            st.rerun()
 
-        with c2:
-            st.markdown(
-                f'<div class="small-card"><p class="number">{len(rag)}</p>'
-                '<span class="muted">RAG candidates</span></div>',
-                unsafe_allow_html=True,
-            )
+    with b2:
+        with st.expander("AI Identification Details"):
+            st.json({
+                "Identification Acceptance Decision": ident,
+                "Product Identification Payload": result.get("product_identification"),
+                "OCR Text Extracted": result.get("ocr"),
+                "YOLO Crop Count": yolo_data.get("crop_count"),
+                "YOLO Best Detection": yolo_data.get("best_detection"),
+                "CLIP Top Predictions": result.get("vision_top_predictions"),
+                "Gemini Multimodal Understanding": result.get("product_understanding"),
+                "RAG Candidates": result.get("rag_candidates"),
+                "Final Recommendations": result.get("recommendations")
+            })
 
-        with c3:
-            st.markdown(
-                f'<div class="small-card"><p class="number">{len(recommendations)}</p>'
-                '<span class="muted">Recommendations</span></div>',
-                unsafe_allow_html=True,
-            )
 
-        with c4:
-            st.markdown(
-                f'<div class="small-card"><p class="number">{safe_score(detected.get("Vision_Score", 0)):.2f}</p>'
-                '<span class="muted">Vision score</span></div>',
-                unsafe_allow_html=True,
-            )
+# Page 1: Main Dashboard
+def render_dashboard():
+    st.markdown('<div class="page-title">WAREHOUSE AI</div>', unsafe_allow_html=True)
+    st.markdown('<div class="page-subtitle">Vision-Based Pick Recommendation System</div>', unsafe_allow_html=True)
 
-        st.markdown("### Detected Product")
+    is_ok, status_info = pipeline.check_backend_status()
 
-        a, b = st.columns([1, 2])
-
-        with a:
-            if st.session_state["uploaded_image"] is not None:
-                st.image(
-                    st.session_state["uploaded_image"],
-                    use_container_width=True,
-                )
-
-        with b:
-            st.markdown(
-                f"""
-                <div class="card">
-                    <h3>{detected.get("Product_Name", "Unknown Product")}</h3>
-                    <p><b>Product ID:</b> {detected.get("Product_ID", "-")}</p>
-                    <p><b>Category:</b> {detected.get("Category", "-")}</p>
-                    <p><b>Vision Score:</b>
-                       {safe_score(detected.get("Vision_Score", 0)):.4f}</p>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-
+    if is_ok:
+        st.markdown("""
+            <div class="status-pill-online" style="margin-bottom: 20px;">
+                <span class="status-dot"></span> AI SYSTEM ONLINE
+            </div>
+        """, unsafe_allow_html=True)
     else:
-        st.info(
-            "No completed analysis yet. Open Product Detection, upload an image, "
-            "and run the AI pipeline."
-        )
+        st.markdown("""
+            <div class="status-pill-warning" style="margin-bottom: 20px;">
+                <span class="status-dot"></span> BACKEND NOT FULLY CONFIGURED
+            </div>
+        """, unsafe_allow_html=True)
+        if status_info["missing_files"]:
+            st.warning("⚠️ Private product catalog is not configured.")
+        if not status_info["has_api_key"]:
+            st.warning("⚠️ GEMINI_API_KEY environment variable is not configured.")
 
-# ============================================================
-# PRODUCT DETECTION
-# ============================================================
+    st.markdown("*Identify warehouse products and generate intelligent complementary recommendations using Computer Vision, RAG and Generative AI.*")
+    st.markdown("---")
 
-elif page == "🔍 Product Detection":
+    render_kpi_cards()
 
-    st.markdown("## Product Detection")
+    if st.session_state.current_result is not None:
+        render_analysis_summary(st.session_state.current_result)
+        return
 
-    st.markdown(
-        """
-        <div class="card">
-            <b>Step 1:</b> Upload a product image.<br>
-            <b>Step 2:</b> Review the image information.<br>
-            <b>Step 3:</b> Run the complete YOLO → CLIP → RAG → Gemini pipeline.
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    st.markdown("### Upload Product Image")
+    st.markdown("Upload a warehouse/product image to start AI analysis.")
 
     uploaded_file = st.file_uploader(
-        "Upload a warehouse/product image",
-        type=["jpg", "jpeg", "png", "webp"],
-        help="Upload an image containing the product you want to identify.",
+        "Choose warehouse image",
+        type=["png", "jpg", "jpeg", "webp"],
+        label_visibility="collapsed"
     )
 
     if uploaded_file is not None:
-
         image = Image.open(uploaded_file).convert("RGB")
+        st.session_state.uploaded_image = image
+        st.session_state.uploaded_file_name = uploaded_file.name
 
-        st.session_state["uploaded_image"] = image
-        st.session_state["uploaded_filename"] = uploaded_file.name
+        col_img, col_btn = st.columns([2, 1])
 
-        left, right = st.columns([1.35, 1])
+        with col_img:
+            st.image(image, caption=f"Uploaded Preview: {uploaded_file.name}", use_container_width=True)
 
-        with left:
-            st.markdown("### Preview")
-            st.image(image, use_container_width=True)
-
-        with right:
-            st.markdown("### Image Information")
-
-            st.markdown(
-                f"""
-                <div class="card">
-                    <p><b>File:</b> {uploaded_file.name}</p>
-                    <p><b>Width:</b> {image.width}px</p>
-                    <p><b>Height:</b> {image.height}px</p>
-                    <p><b>Format:</b> {image.format or "RGB image"}</p>
+        with col_btn:
+            st.markdown("""
+                <div class="saas-card">
+                    <h4>Image Loaded</h4>
+                    <p style="color: #94a3b8; font-size: 0.85rem;">Ready to process image through the 9-stage vision & recommendation pipeline.</p>
                 </div>
-                """,
-                unsafe_allow_html=True,
-            )
+            """, unsafe_allow_html=True)
 
-            st.markdown("### Pipeline Settings")
+            if st.button("🚀 Analyze Product", type="primary", use_container_width=True):
+                with st.spinner("Processing AI Pipeline..."):
+                    result = execute_pipeline(image)
+                    st.session_state.current_result = result
 
-            top_k_vision = st.slider(
-                "Top vision predictions",
-                min_value=1,
-                max_value=10,
-                value=5,
-            )
+                    p_ident = result.get("product_identification", {})
+                    st.session_state.history.append({
+                        "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        "filename": uploaded_file.name,
+                        "product_name": p_ident.get("product_name", "Unknown Product"),
+                        "product_id": p_ident.get("product_id", "N/A"),
+                        "recommendations_count": len(result.get("recommendations", [])),
+                        "status": p_ident.get("status", "unidentified")
+                    })
+                    st.rerun()
 
-            top_k_rag = st.slider(
-                "Top RAG candidates",
-                min_value=1,
-                max_value=20,
-                value=10,
-            )
 
-            run = st.button(
-                "🚀 Run Complete AI Pipeline",
-                type="primary",
-                use_container_width=True,
-            )
+# Page 2: Product Detection Page
+def render_product_detection_page():
+    st.markdown('<div class="page-title">🔍 Product Detection & Identification</div>', unsafe_allow_html=True)
+    st.markdown('<div class="page-subtitle">Separate YOLO Object Detection & CLIP Vision Classification</div>', unsafe_allow_html=True)
 
-            if run:
+    result = st.session_state.current_result
 
-                if final_warehouse_pipeline is None:
-                    st.error(
-                        "Backend pipeline was not found. "
-                        "Make sure pipeline.py is in the same folder."
-                    )
+    if not result or result.get("status") == "failed":
+        st.info("💡 Please upload and analyze a product image on the Dashboard page to view detailed detection & identification results.")
+        return
 
-                else:
-                    with st.status(
-                        "Running AI pipeline...",
-                        expanded=True,
-                    ) as status:
+    ident = result.get("identification", {})
+    is_accepted = ident.get("accepted", False)
 
-                        try:
-                            st.write("⚙️ Running image preprocessing...")
-                            st.write("🎯 Running YOLO product detection...")
-                            st.write("🤖 Running CLIP product identification...")
-                            st.write("📚 Running Text RAG retrieval...")
-                            st.write("✨ Generating Gemini recommendations...")
+    c1, c2 = st.columns([1, 1])
 
-                            result = final_warehouse_pipeline(
-                                image,
-                                top_k_vision=top_k_vision,
-                                top_k_rag=top_k_rag,
-                            )
+    with c1:
+        st.markdown("### Uploaded vs. YOLO Annotated Image")
+        if st.session_state.uploaded_image:
+            detections = result.get("yolo", {}).get("detections", [])
+            annotated = pipeline.draw_yolo_detections(st.session_state.uploaded_image, detections)
+            st.image(annotated, use_container_width=True, caption="YOLO Bounding Box Annotations")
 
-                            st.session_state["result"] = result
+    with c2:
+        render_product_card(result)
 
-                            if result.get("status") == "success":
-                                save_history(result, uploaded_file.name)
-                                status.update(
-                                    label="Pipeline completed successfully",
-                                    state="complete",
-                                )
-                            else:
-                                status.update(
-                                    label="Pipeline failed",
-                                    state="error",
-                                )
+    st.markdown("---")
 
-                        except Exception as exc:
-                            status.update(
-                                label="Pipeline error",
-                                state="error",
-                            )
-                            st.exception(exc)
-
+    # Separate Section 1: YOLO Object Detection
+    st.markdown("### 🎯 YOLO Object Detection & Crop Extraction")
+    st.markdown(f"*Object bounding boxes detected by YOLO model (Crops extracted: {result.get('yolo', {}).get('crop_count', 0)}).*")
+    yolo_detections = result.get("yolo", {}).get("detections", [])
+    if yolo_detections:
+        yolo_table = []
+        for d in yolo_detections:
+            yolo_table.append({
+                "Class": d.get("class_name", "product"),
+                "YOLO Confidence": f"{d.get('confidence', 0.0) * 100:.1f}%",
+                "Bounding Box [x1, y1, x2, y2]": [round(val, 1) for val in d.get("bbox", [])]
+            })
+        st.dataframe(pd.DataFrame(yolo_table), use_container_width=True)
     else:
-        st.info("Upload a product image to begin.")
+        st.write("No YOLO bounding boxes detected.")
 
-# ============================================================
-# DETECTION RESULTS
-# ============================================================
+    st.markdown("---")
 
-elif page == "🎯 Detection Results":
-
-    st.markdown("## Detection Results")
-
-    result = st.session_state["result"]
-    image = st.session_state["uploaded_image"]
-
-    if not result:
-        st.info(
-            "No analysis result is available. Run the pipeline from "
-            "Product Detection first."
-        )
-
-    elif result.get("status") != "success":
-        st.error(result.get("message", "Pipeline failed."))
-
-        if result.get("stage"):
-            st.write(f"**Failed stage:** {result.get('stage')}")
-
-        if result.get("error"):
-            st.code(str(result.get("error")))
-
+    # Separate Section 2: CLIP Top Predictions
+    if is_accepted:
+        st.markdown("### 👁️ CLIP Product Identification (Top Predictions)")
     else:
+        st.markdown("### 👁️ Top Possible Catalog Matches (Unconfirmed Candidates)")
+        st.caption("⚠️ *These are unconfirmed catalog candidates ranked by CLIP score, NOT accepted product matches.*")
 
-        detected = result.get("product_detection", {})
-        detections = result.get("yolo", {}).get("detections", [])
-        best_detection = result.get("yolo", {}).get("best_detection")
-
-        st.markdown("### Detected Product")
-
-        a, b = st.columns([1, 2])
-
-        with a:
-            if image is not None:
-                st.image(image, use_container_width=True)
-
-        with b:
-            st.markdown(
-                f"""
-                <div class="card">
-                    <h2>{detected.get("Product_Name", "Unknown")}</h2>
-                    <p><b>Product ID:</b> {detected.get("Product_ID", "-")}</p>
-                    <p><b>Category:</b> {detected.get("Category", "-")}</p>
-                    <p><b>Vision Score:</b>
-                       {safe_score(detected.get("Vision_Score", 0)):.4f}</p>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-
-        st.markdown("---")
-
-        st.markdown("### 🎯 YOLO Detection")
-
-        if best_detection:
-            c1, c2, c3 = st.columns(3)
-
-            with c1:
-                st.metric(
-                    "Best Class",
-                    best_detection.get("class_name", "-"),
-                )
-
-            with c2:
-                st.metric(
-                    "Confidence",
-                    f"{safe_score(best_detection.get('confidence', 0)):.4f}",
-                )
-
-            with c3:
-                st.metric(
-                    "Detection Count",
-                    len(detections),
-                )
-
-        if detections:
-            df = dataframe_from(detections)
-
-            if "confidence" in df.columns:
-                df["confidence"] = df["confidence"].apply(
-                    lambda x: round(safe_score(x), 4)
-                )
-
-            st.dataframe(
-                df,
-                use_container_width=True,
-                hide_index=True,
-            )
-        else:
-            st.warning("No YOLO detections were returned.")
-
-        st.markdown("---")
-
-        st.markdown("### 🤖 Top Vision Predictions")
-
-        vision = result.get("vision_top_predictions", [])
-
-        if vision:
-            df = dataframe_from(vision)
-
-            if "score" in df.columns:
-                df["score"] = df["score"].apply(
-                    lambda x: round(safe_score(x), 4)
-                )
-
-            st.dataframe(
-                df,
-                use_container_width=True,
-                hide_index=True,
-            )
-        else:
-            st.info("No vision predictions were returned.")
-
-# ============================================================
-# RECOMMENDATIONS
-# ============================================================
-
-elif page == "🛒 Recommendations":
-
-    st.markdown("## 🛒 AI Product Recommendations")
-
-    result = st.session_state["result"]
-    image = st.session_state["uploaded_image"]
-
-    if not result:
-        st.info(
-            "Run Product Detection first to generate recommendations."
-        )
-
-    elif result.get("status") != "success":
-        st.error(result.get("message", "Pipeline failed."))
-
+    vision_top = result.get("vision_top_predictions", [])
+    if vision_top:
+        top_table = []
+        for rank, p in enumerate(vision_top, 1):
+            prod_name = p.get("Product_Name")
+            raw_c = p.get("Category")
+            norm_c = p.get("Normalized_Category", pipeline.normalize_category(prod_name, raw_c))
+            top_table.append({
+                "Candidate Rank": f"Candidate Match #{rank}",
+                "Product ID": p.get("Product_ID"),
+                "Product Name": prod_name,
+                "Category": norm_c,
+                "Catalog Category": raw_c,
+                "CLIP Vision Score": f"{p.get('score', 0.0) * 100:.1f}%",
+                "Status": "Verified Match" if (is_accepted and rank == 1) else "Rejected Candidate"
+            })
+        st.dataframe(pd.DataFrame(top_table), use_container_width=True)
     else:
+        st.write("No CLIP vision predictions available.")
 
-        detected = result.get("product_detection", {})
-        recommendations = result.get("recommendations", [])
-        rag_candidates = result.get("rag_candidates", [])
+    with st.expander("AI Identification Details"):
+        st.json({
+            "Identification Acceptance Decision": ident,
+            "Product Identification Payload": result.get("product_identification"),
+            "OCR Text Extracted": result.get("ocr"),
+            "YOLO Crop Count": result.get("yolo", {}).get("crop_count"),
+            "YOLO Detections": result.get("yolo"),
+            "CLIP Top Predictions": result.get("vision_top_predictions"),
+            "Gemini Multimodal Understanding": result.get("product_understanding"),
+            "RAG Candidates": result.get("rag_candidates")
+        })
 
-        a, b = st.columns([1, 2])
 
-        with a:
-            if image is not None:
-                st.image(image, use_container_width=True)
+# Page 3: Recommendations Page
+def render_recommendations_page():
+    st.markdown('<div class="page-title">🛒 Recommendations</div>', unsafe_allow_html=True)
+    st.markdown('<div class="page-subtitle">AI Recommended Complementary Warehouse Products</div>', unsafe_allow_html=True)
 
-        with b:
-            st.markdown(
-                f"""
-                <div class="card">
-                    <p class="muted">Detected product</p>
-                    <h2>{detected.get("Product_Name", "Unknown")}</h2>
-                    <p><b>Product ID:</b> {detected.get("Product_ID", "-")}</p>
-                    <p><b>Category:</b> {detected.get("Category", "-")}</p>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+    result = st.session_state.current_result
 
-        st.markdown("---")
+    if not result or result.get("status") == "failed":
+        st.info("💡 Please upload and analyze a product image on the Dashboard page to view product recommendations.")
+        return
 
-        c1, c2, c3 = st.columns(3)
+    ident = result.get("identification", {})
+    is_accepted = ident.get("accepted", False)
+    recs = result.get("recommendations", [])
+    vision_top = result.get("vision_top_predictions", [])
+    rag_cands = result.get("rag_candidates", [])
 
-        with c1:
-            st.metric("RAG Candidates", len(rag_candidates))
+    st.markdown("### AI Recommended Products")
+    st.markdown("*Complementary products selected from retrieved warehouse catalog candidates.*")
 
-        with c2:
-            st.metric("Final Recommendations", len(recommendations))
-
-        with c3:
-            st.metric(
-                "Vision Score",
-                f"{safe_score(detected.get('Vision_Score', 0)):.4f}",
-            )
-
-        st.markdown("### Recommended Products")
-
-        if recommendations:
-            for index, product in enumerate(recommendations, start=1):
-
-                st.markdown(
-                    f"""
-                    <div class="recommendation">
-                        <span class="recommendation-number">
-                            {index}. {product.get("Product_Name", "Unknown")}
-                        </span>
-                        <br>
-                        <span class="muted">
-                            Product ID: {product.get("Product_ID", "-")}
-                        </span>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
+    if is_accepted:
+        if recs:
+            cols = st.columns(min(len(recs), 3))
+            for i, item in enumerate(recs):
+                with cols[i % 3]:
+                    st.markdown(f"""
+                        <div class="saas-card-accent">
+                            <div class="rec-badge">#{i+1:02d} RECOMMENDATION</div>
+                            <h4 style="color: #f8fafc; margin-top: 8px;">{item['Product_Name']}</h4>
+                            <p style="color: #38bdf8; font-weight: 700;">ID: {item['Product_ID']}</p>
+                            <p style="color: #94a3b8; font-size: 0.85rem;">Complementary Item</p>
+                        </div>
+                    """, unsafe_allow_html=True)
         else:
-            st.warning("No valid recommendations were generated.")
-
-        st.markdown("---")
-
-        st.markdown("### Validation")
-
-        rag_ids = {
-            str(p.get("Product_ID"))
-            for p in rag_candidates
-        }
-
-        detected_id = str(detected.get("Product_ID"))
-
-        valid_count = 0
-        invalid_count = 0
-
-        for product in recommendations:
-            product_id = str(product.get("Product_ID"))
-            if product_id in rag_ids and product_id != detected_id:
-                valid_count += 1
-            else:
-                invalid_count += 1
-
-        if invalid_count == 0:
-            st.success(
-                f"All {valid_count} displayed recommendations passed "
-                "the candidate validation check."
-            )
-        else:
-            st.warning(
-                f"{valid_count} recommendations passed validation and "
-                f"{invalid_count} did not."
-            )
-
-        # Download the final recommendation list.
-        recommendation_json = json.dumps(
-            recommendations,
-            indent=2,
-            default=str,
-        )
-
-        st.download_button(
-            "⬇️ Download Recommendations JSON",
-            data=recommendation_json,
-            file_name="warehouse_recommendations.json",
-            mime="application/json",
-        )
-
-# ============================================================
-# RAG EXPLORER
-# ============================================================
-
-elif page == "📚 RAG Explorer":
-
-    st.markdown("## 📚 RAG Candidate Explorer")
-
-    result = st.session_state["result"]
-
-    if not result or result.get("status") != "success":
-        st.info(
-            "Run the AI pipeline first to view the retrieved RAG candidates."
-        )
-
+            st.info("No valid recommendations returned by the model.")
     else:
+        st.warning("🔒 **Recommendations Guardrail Active**: Product identification is uncertain. Recommendations are unavailable until a product can be reliably identified.")
 
-        rag_candidates = result.get("rag_candidates", [])
+    st.markdown("---")
 
-        if not rag_candidates:
-            st.warning("No RAG candidates were returned.")
+    c_vis, c_rag = st.columns(2)
 
+    with c_vis:
+        st.markdown("### 🔎 Vision Candidates (CLIP)")
+        if vision_top:
+            top_df = pd.DataFrame(vision_top)
+            if "score" in top_df.columns:
+                top_df["CLIP Score"] = top_df["score"].apply(lambda s: f"{s*100:.1f}%")
+            if "Normalized_Category" not in top_df.columns and "Product_Name" in top_df.columns:
+                top_df["Normalized_Category"] = top_df.apply(lambda r: pipeline.normalize_category(r["Product_Name"], r.get("Category")), axis=1)
+            display_cols = [c for c in ["Product_ID", "Product_Name", "Normalized_Category", "CLIP Score"] if c in top_df.columns]
+            st.dataframe(top_df[display_cols], use_container_width=True)
+
+    with c_rag:
+        st.markdown("### 📚 Semantic RAG Candidates")
+        if is_accepted and rag_cands:
+            rag_df = pd.DataFrame(rag_cands)
+            if "rag_score" in rag_df.columns:
+                rag_df["RAG Score"] = rag_df["rag_score"].apply(lambda s: f"{s:.4f}")
+            if "Normalized_Category" not in rag_df.columns and "Product_Name" in rag_df.columns:
+                rag_df["Normalized_Category"] = rag_df.apply(lambda r: pipeline.normalize_category(r["Product_Name"], r.get("Category")), axis=1)
+            display_cols = [c for c in ["Product_ID", "Product_Name", "Normalized_Category", "RAG Score"] if c in rag_df.columns]
+            st.dataframe(rag_df[display_cols], use_container_width=True)
         else:
+            st.caption("No RAG candidates retrieved for unidentified item.")
 
-            df = dataframe_from(rag_candidates)
-
-            if "rag_score" in df.columns:
-                df["rag_score"] = df["rag_score"].apply(
-                    lambda x: round(safe_score(x), 4)
-                )
-
-            search = st.text_input(
-                "Search candidate products",
-                placeholder="Search Product ID, name or category...",
-            )
-
-            if search:
-                mask = (
-                    df.astype(str)
-                    .apply(
-                        lambda row: row.str.contains(
-                            search,
-                            case=False,
-                            na=False,
-                        ).any(),
-                        axis=1,
-                    )
-                )
-                display_df = df[mask]
-            else:
-                display_df = df
-
-            st.metric("Candidates shown", len(display_df))
-
-            st.dataframe(
-                display_df,
-                use_container_width=True,
-                hide_index=True,
-            )
-
-            csv_buffer = io.StringIO()
-            display_df.to_csv(csv_buffer, index=False)
-
-            st.download_button(
-                "⬇️ Download RAG Candidates CSV",
-                data=csv_buffer.getvalue(),
-                file_name="rag_candidates.csv",
-                mime="text/csv",
-            )
-
-# ============================================================
-# RUN HISTORY
-# ============================================================
-
-elif page == "🕘 Run History":
-
-    st.markdown("## 🕘 Analysis History")
-
-    history = st.session_state["history"]
-
-    if not history:
-        st.info(
-            "No successful pipeline runs have been recorded in this "
-            "Streamlit session."
-        )
-
-    else:
-
-        history_df = pd.DataFrame(history)
-
-        st.dataframe(
-            history_df,
-            use_container_width=True,
-            hide_index=True,
-        )
-
-        csv_buffer = io.StringIO()
-        history_df.to_csv(csv_buffer, index=False)
-
-        st.download_button(
-            "⬇️ Download Run History CSV",
-            data=csv_buffer.getvalue(),
-            file_name="warehouse_run_history.csv",
-            mime="text/csv",
-        )
-
-        if st.button("Clear History"):
-            st.session_state["history"] = []
-            st.rerun()
-
-# ============================================================
-# PIPELINE DETAILS
-# ============================================================
-
-elif page == "📊 Pipeline Details":
-
-    st.markdown("## 📊 Pipeline Details")
-
-    st.markdown(
-        """
-        <div class="card">
-            <h3>1. Image Input</h3>
-            The user uploads a product image through the Streamlit interface.
-
-            <h3>2. OpenCV Preprocessing</h3>
-            The image is converted and resized when required before detection.
-
-            <h3>3. YOLO Product Detection</h3>
-            The pretrained YOLO model detects the product region and returns
-            bounding boxes and confidence values.
-
-            <h3>4. Product Identification</h3>
-            The detected product crop is compared with product catalog names
-            using the pretrained CLIP vision model.
-
-            <h3>5. Text RAG</h3>
-            Product catalog information is converted into text documents.
-            Sentence Transformer embeddings retrieve relevant candidate products.
-
-            <h3>6. Gemini Recommendation</h3>
-            Gemini receives the detected product and RAG candidates and returns
-            product recommendations.
-
-            <h3>7. Validation</h3>
-            The final recommendations are checked against the RAG candidate list
-            so unknown Product IDs or invented products are not accepted.
+    st.markdown("### Recommendation Validation")
+    st.markdown("""
+        <div class="saas-card">
+            <p style="color: #10b981; font-weight: 600;">✓ Recommendations belong strictly to retrieved RAG candidates</p>
+            <p style="color: #10b981; font-weight: 600;">✓ Product ID validated against catalog database</p>
+            <p style="color: #10b981; font-weight: 600;">✓ Original detected product successfully excluded</p>
         </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    """, unsafe_allow_html=True)
+
+
+# Page 4: AI Pipeline Page
+def render_pipeline_page():
+    st.markdown('<div class="page-title">🧠 AI Pipeline Architecture</div>', unsafe_allow_html=True)
+    st.markdown('<div class="page-subtitle">9-Stage Computer Vision, Multi-Crop, OCR, Product Understanding & RAG Flow</div>', unsafe_allow_html=True)
+
+    st.markdown("""
+        <div class="saas-card" style="text-align: center; padding: 24px;">
+            <div style="font-weight: 700; color: #38bdf8; font-size: 0.95rem; line-height: 2;">
+                IMAGE UPLOAD &nbsp;➔&nbsp; OPENCV PREPROCESS &nbsp;➔&nbsp; YOLO DETECTION &nbsp;➔&nbsp; CROPS & FILTERING <br>
+                ➔&nbsp; OCR EXTRACTION &nbsp;➔&nbsp; CLIP MATCHING &nbsp;➔&nbsp; GEMINI PRODUCT UNDERSTANDING <br>
+                ➔&nbsp; CATALOG MATCH & ACCEPTANCE GATE &nbsp;➔&nbsp; TEXT RAG &nbsp;➔&nbsp; GEMINI RECOMMENDATION &nbsp;➔&nbsp; VALIDATION
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+
+    stages = [
+        ("01", "Image Preprocessing", "OpenCV", "Resize to 1280 max size & Gaussian blur noise reduction.", "Ready"),
+        ("02", "Product Detection", "YOLOv26 (prince4332/yolov26-product-detection-v2)", "Detect product bounding box coordinates and detection confidence.", "Ready"),
+        ("03", "Crops & Quality Filtering", "OpenCV Crop Engine", "Extract multiple product crops & filter small/distorted bounding boxes.", "Ready"),
+        ("04", "OCR Text Extraction", "OpenCV Text Analyzer", "Extract visible packaging text from product crops.", "Ready"),
+        ("05", "CLIP Visual Matching", "CLIP (openai/clip-vit-base-patch32)", "Zero-shot classification against catalog product names.", "Ready"),
+        ("06", "Gemini Product Understanding", "Gemini 3.6 Flash", "Interpret crop image + OCR + CLIP candidates to generate structured product understanding.", "Ready"),
+        ("07", "Catalog Match & Acceptance Gate", "Multi-Signal Scorer (35% Threshold)", "Require combined confidence >= 35% to accept identification. Otherwise set Unknown Product.", "Ready"),
+        ("08", "Text RAG Retrieval", "SentenceTransformer (all-MiniLM-L6-v2)", "Retrieve top-K catalog candidates using vector similarity (accepted items only).", "Ready"),
+        ("09", "Gemini Recommendation & Validation", "Gemini 3.6 Flash & Rule Engine", "Generative complementary product recommendation and strict candidate validation.", "Ready")
+    ]
+
+    for code, title, tech, desc, status in stages:
+        st.markdown(f"""
+            <div class="saas-card">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <span class="rec-badge">STAGE {code}</span>
+                        <h3 style="color: #f8fafc; margin: 4px 0;">{title}</h3>
+                        <p style="color: #38bdf8; font-weight: 600; margin: 0 0 6px 0;">Tech: {tech}</p>
+                        <p style="color: #94a3b8; font-size: 0.9rem; margin: 0;">{desc}</p>
+                    </div>
+                    <div>
+                        <span class="status-pill-online"><span class="status-dot"></span> {status}</span>
+                    </div>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+
+
+# Page 5: Analytics Page
+def render_analytics_page():
+    st.markdown('<div class="page-title">📊 Session Analytics</div>', unsafe_allow_html=True)
+    st.markdown('<div class="page-subtitle">Real-time Performance Metrics from Session Executions</div>', unsafe_allow_html=True)
+
+    if not st.session_state.history:
+        st.info("No analytics data available yet. Please run an image analysis on the Dashboard.")
+        return
+
+    df_hist = pd.DataFrame(st.session_state.history)
+
+    c1, c2, c3 = st.columns(3)
+
+    with c1:
+        st.metric("Total Analyses", len(df_hist))
+
+    with c2:
+        success_count = (df_hist["status"] == "identified").sum()
+        st.metric("Identified Products", success_count)
+
+    with c3:
+        avg_recs = df_hist["recommendations_count"].mean() if len(df_hist) > 0 else 0
+        st.metric("Avg Recommendations", f"{avg_recs:.1f}")
 
     st.markdown("---")
+    st.markdown("### Execution History Chart")
+    st.bar_chart(df_hist[["filename", "recommendations_count"]].set_index("filename"))
 
-    st.markdown("## Backend Connection")
 
-    if final_warehouse_pipeline is not None:
-        st.success(
-            "Backend pipeline connected successfully."
-        )
-    else:
-        st.error(
-            "Backend pipeline is not connected."
-        )
+# Page 6: History Page
+def render_history_page():
+    st.markdown('<div class="page-title">🕘 History</div>', unsafe_allow_html=True)
+    st.markdown('<div class="page-subtitle">Current Session History</div>', unsafe_allow_html=True)
 
-        if backend_error:
-            with st.expander("Technical error"):
-                st.code(backend_error)
+    if not st.session_state.history:
+        st.info("No history records in the current session yet.")
+        return
 
-    st.markdown("---")
+    df_hist = pd.DataFrame(st.session_state.history)
+    st.dataframe(df_hist, use_container_width=True)
 
-    st.markdown("## Backend Contract")
 
-    st.code(
-        """
-final_warehouse_pipeline(
-    pil_image,
-    top_k_vision=5,
-    top_k_rag=10
-)
-        """,
-        language="python",
-    )
+# Page 7: About Page
+def render_about_page():
+    st.markdown('<div class="page-title">ℹ️ About System</div>', unsafe_allow_html=True)
+    st.markdown('<div class="page-subtitle">Vision-Based Pick Recommendation System</div>', unsafe_allow_html=True)
 
-    st.markdown("## Expected Result Structure")
+    st.markdown("""
+        <div class="saas-card-accent">
+            <h3>System Overview</h3>
+            <p>The Vision-Based Pick Recommendation System is an AI-powered warehouse automation engine designed to identify products from computer vision imagery and recommend complementary pick items for optimized warehouse operations.</p>
+        </div>
+    """, unsafe_allow_html=True)
 
-    st.code(
-        """
-{
-    "status": "success",
+    st.markdown("### Architecture Stack")
+    st.markdown("- **Pre-processing**: OpenCV RGB-to-BGR scaling and Gaussian noise reduction.")
+    st.markdown("- **Object Detection**: YOLOv26 model fine-tuned for product bounding boxes.")
+    st.markdown("- **Crop Validation & OCR**: OpenCV aspect/size filtering and text region analysis.")
+    st.markdown("- **Product Identification**: OpenAI CLIP ViT-B/32 zero-shot vision classification.")
+    st.markdown("- **Product Understanding**: Google Gemini 3.6 Flash multimodal visual analysis.")
+    st.markdown("- **Acceptance Threshold**: Multi-signal confidence score fusion with 35% threshold gate.")
+    st.markdown("- **RAG Vector Search**: SentenceTransformer `all-MiniLM-L6-v2` dense vector retrieval.")
+    st.markdown("- **Generative AI**: Google Gemini 3.6 Flash model for intelligent recommendation reasoning.")
 
-    "yolo": {
-        "detections": [...],
-        "best_detection": {...}
-    },
 
-    "product_detection": {
-        "Product_ID": "...",
-        "Product_Name": "...",
-        "Category": "...",
-        "Vision_Score": 0.0
-    },
+# Main App Dispatcher
+def main():
+    render_sidebar()
 
-    "vision_top_predictions": [...],
-    "rag_candidates": [...],
-    "recommendations": [...]
-}
-        """,
-        language="python",
-    )
+    page = st.session_state.active_page
 
-    st.markdown("---")
+    if page == "🏠 Dashboard":
+        render_dashboard()
+    elif page == "🔍 Product Detection":
+        render_product_detection_page()
+    elif page == "🛒 Recommendations":
+        render_recommendations_page()
+    elif page == "🧠 AI Pipeline":
+        render_pipeline_page()
+    elif page == "📊 Analytics":
+        render_analytics_page()
+    elif page == "🕘 History":
+        render_history_page()
+    elif page == "ℹ️ About":
+        render_about_page()
 
-    st.markdown("## Current Result JSON")
-
-    current_result = st.session_state["result"]
-
-    if current_result:
-        st.json(current_result)
-
-        st.download_button(
-            "⬇️ Download Complete Result JSON",
-            data=result_json(current_result),
-            file_name="warehouse_pipeline_result.json",
-            mime="application/json",
-        )
-    else:
-        st.info("No result is available yet.")
-
-# ============================================================
-# FOOTER
-# ============================================================
-
-st.markdown("---")
-
-st.caption(
-    "Warehouse Vision-Based Pick Recommendation System | "
-    "YOLO + CLIP + Text RAG + Gemini"
-)
+if __name__ == "__main__":
+    main()
